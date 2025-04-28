@@ -1,5 +1,4 @@
 #include "ESP8266WiFi.h"
-#include <WiFiClient.h>
 #include <ESPping.h>
 #include "secrets.h"
 
@@ -13,14 +12,13 @@ IPAddress subnet(255, 255, 0, 0);
 
 
 // Modem/router
-IPAddress router_ip(192,168,50,1);
 IPAddress remote_ip(8,8,8,8); // Google DNS
 
 long interval_gateway = 10'000;
-long interval_remote = 10'000;
+long interval_remote = 60'000;
 
 long reset_duration = 10'000;
-long post_reset_wait = 350'000;
+long post_reset_wait = 450'000;
 
 int max_remote_fails = 5;
 int max_modem_fails = 5;
@@ -140,6 +138,8 @@ void connect_wifi(){
   Serial.println(WiFi.macAddress());
 
   Serial.printf("Connection took: %d ms\n", int(float(end - start) / 1000));
+  WiFi.setAutoConnect(true);
+  WiFi.persistent(true);
 }
 
 void monitoring_loop(){
@@ -151,12 +151,14 @@ void setup() {
   // Avoid sending garbage during initialization of the serial port 
   delay(4'000);
   Serial.begin(9600);
-  delay(1'000);
+  delay(4'000);
 
   check_wifi_shield();
   config_wifi();
   scan_networks();
   connect_wifi();
+
+
 
   Serial.println("Initializing Pins");
 
@@ -170,7 +172,7 @@ unsigned long previous_milli_gateway = 0;
 unsigned long previous_milli_remote = 0;
 unsigned long previous_milli_server = 0;
 
-int gateway_fails = 0;
+int modem_fails = 0;
 int remote_fails = 0;
 int server_fails = 0;
 
@@ -208,13 +210,13 @@ void loop() {
   if (currentMillis - previous_milli_gateway >= interval_gateway) {
     previous_milli_gateway = currentMillis;
     if (!check_router()){
-      gateway_fails++;
+      modem_fails++;
     }
     else{
-      gateway_fails = 0;
+      modem_fails = 0;
     }
-    if (max_remote_fails >= max_remote_fails){
-      Serial.println("Gateway failed too many times - restarting");
+    if (modem_fails >= max_modem_fails){
+      Serial.println("Modem failed too many times - restarting");
       cycle_relay(reset_duration, post_reset_wait);
     }
   }
