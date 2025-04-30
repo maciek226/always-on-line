@@ -2,6 +2,11 @@
 #include <ESPping.h>
 #include "secrets.h"
 #include "config.h"
+#include <WiFiUdp.h>
+#include <WakeOnLan.h>
+
+WiFiUDP UDP;
+WakeOnLan WOL(UDP);
 
 void cycle_relay(long duration, long wait)
 {
@@ -16,6 +21,11 @@ void cycle_relay(long duration, long wait)
   Serial.println("Reset complete\nWaiting for modem to come back online...");
   delay(wait);
   Serial.println("Waiting complete");
+}
+
+void wake_server()
+{
+  WOL.sendMagicPacket(mac_address);
 }
 
 void config_wifi()
@@ -158,6 +168,10 @@ void setup()
   pinMode(relay_pin, OUTPUT);
   digitalWrite(relay_pin, HIGH);
 
+  Serial.println("Seting up WOL");
+  WOL.setRepeat(3, 1'000);
+  WOL.calculateBroadcastAddress(WiFi.localIP(), WiFi.subnetMask());
+
   Serial.println("Setup Complete");
 }
 
@@ -205,7 +219,7 @@ void loop()
     if (server_fails >= max_server_fails)
     {
       Serial.println("Server failed too many times - sending a wake signal");
-      // TODO: add a magic packet sender here
+      wake_server();
     }
   }
 
