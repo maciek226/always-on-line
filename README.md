@@ -36,7 +36,7 @@ Note that the pin outs labels on the ESP8266 boards do not correspond to the lab
 1. Edit `secrets.h`
     - Change the SSID of the network you want to monitor 
     - Add the network password 
-1. Edit the `src.ino` file 
+1. Edit the `config.ino` file 
     - Change `device_ip` to the preferred IP address for the controller 
     - Change `router_ip` to the default gateway
     - (Optional) Change the `subnet` 
@@ -47,4 +47,4 @@ Note that the pin outs labels on the ESP8266 boards do not correspond to the lab
 
 # Future development 
 - [ ] Add wake on LAN magic packet capability for the cases where the server is not reachable 
-- [ ] Move the user configurable variables to a separate file 
+- [x] Move the user configurable variables to a separate file 

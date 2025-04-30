@@ -1,35 +1,9 @@
 #include "ESP8266WiFi.h"
 #include <ESPping.h>
 #include "secrets.h"
+#include "config.h"
 
-// Hardware setup
-const uint8_t relay_pin = 2;
-
-// Wi-Fi setup
-IPAddress device_ip(192, 168, 50, 99);
-IPAddress router_ip(192, 168, 50, 1);
-IPAddress subnet(255, 255, 0, 0);
-
-// Modem/router
-IPAddress remote_ip(8, 8, 8, 8); // Google DNS
-
-long interval_gateway = 10'000;
-long interval_remote = 60'000;
-
-long reset_duration = 10'000;
-long post_reset_wait = 450'000;
-
-int max_remote_fails = 5;
-int max_modem_fails = 5;
-
-// Server
-IPAddress server_ip(192, 168, 50, 100);
-long interval_server = 10'000;
-int max_server_fails = 15;
-
-// By default the router should be off for 10 seconds, and they wait for a few minutes
-// For all the devices to come back online
-void cycle_relay(long duration = 10'000, long wait = 350'000)
+void cycle_relay(long duration, long wait)
 {
   digitalWrite(relay_pin, LOW);
   long start_time = millis();
