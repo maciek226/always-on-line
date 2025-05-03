@@ -1,7 +1,7 @@
 # Always on-line
 I have a self hosted NAS/server at home and I want to always have ability to connect to it. However, for that to happen I need my modem and my router to be always online. However, if there is a power surge or an issue with the device, the modem or router might need a reset. This project uses a Wi-Fi connected Arduino to monitor the internet connect and a relay reset devices connected to it.
 
-The board pings the router, remote page (google dns), and local device on interval. If it cannot connect to the router or the remote server it will shutdown the relay which should be mounted between the power outlet and the modem/router. 
+The board pings the router, remote page (google dns), and local device on interval. If it cannot connect to the router or the remote server it will shutdown the relay which should be mounted between the power outlet and the modem/router. If the server is down, it uses wake-on-lan to turn it on. 
 
 ## Requirements and setup 
 
@@ -36,6 +36,7 @@ Note that the pin outs labels on the ESP8266 boards do not correspond to the lab
 1. Edit `secrets.h`
     - Change the SSID of the network you want to monitor 
     - Add the network password 
+    - Add the MAC address of the server
 1. Edit the `config.ino` file 
     - Change `device_ip` to the preferred IP address for the controller 
     - Change `router_ip` to the default gateway
@@ -44,7 +45,3 @@ Note that the pin outs labels on the ESP8266 boards do not correspond to the lab
     - Change `server_ip` to a device you want to monitor (not actually in use right now)
     - You can also edit the intervals at which each of these devices will be pinged and how many failures are allowed before a reset is triggered by editing `interval_xxxx` and `max_xxxx_fails` where `xxxx` represents either relay, server, or remote. 
 1. Upload the sketch to the Arduino and enjoy! 
-
-# Future development 
-- [ ] Add wake on LAN magic packet capability for the cases where the server is not reachable 
-- [x] Move the user configurable variables to a separate file 

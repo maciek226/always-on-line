@@ -70,6 +70,28 @@ void scan_networks()
   }
 }
 
+void connect_wifi()
+{
+  unsigned long start = millis();
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(1000);
+    Serial.print("Attempting to connect to ");
+    Serial.println(ssid);
+  }
+  unsigned long end = millis();
+
+  Serial.println("\nWiFi connection Successful");
+  print_ip();
+  print_mac();
+  Serial.println(WiFi.macAddress());
+
+  Serial.printf("Connection took: %d ms\n", int(float(end - start) / 1000));
+  WiFi.setAutoConnect(true);
+  WiFi.persistent(true);
+}
+
 void print_ip()
 {
   Serial.printf("IP Address:\n\t%s\n", WiFi.localIP().toString().c_str());
@@ -123,32 +145,6 @@ bool check_remote()
     Serial.println("Remote did not respond");
     return false;
   }
-}
-
-void connect_wifi()
-{
-  unsigned long start = millis();
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
-    Serial.print("Attempting to connect to ");
-    Serial.println(ssid);
-  }
-  unsigned long end = millis();
-
-  Serial.println("\nWiFi connection Successful");
-  print_ip();
-  print_mac();
-  Serial.println(WiFi.macAddress());
-
-  Serial.printf("Connection took: %d ms\n", int(float(end - start) / 1000));
-  WiFi.setAutoConnect(true);
-  WiFi.persistent(true);
-}
-
-void monitoring_loop()
-{
 }
 
 void setup()
