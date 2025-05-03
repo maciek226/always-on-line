@@ -1,35 +1,14 @@
 #include "ESP8266WiFi.h"
 #include <ESPping.h>
 #include "secrets.h"
+#include "config.h"
+#include <WiFiUdp.h>
+#include <WakeOnLan.h>
 
-// Hardware setup
-const uint8_t relay_pin = 2;
+WiFiUDP UDP;
+WakeOnLan WOL(UDP);
 
-// Wi-Fi setup
-IPAddress device_ip(192, 168, 50, 99);
-IPAddress router_ip(192, 168, 50, 1);
-IPAddress subnet(255, 255, 0, 0);
-
-// Modem/router
-IPAddress remote_ip(8, 8, 8, 8); // Google DNS
-
-long interval_gateway = 10'000;
-long interval_remote = 60'000;
-
-long reset_duration = 10'000;
-long post_reset_wait = 450'000;
-
-int max_remote_fails = 5;
-int max_modem_fails = 5;
-
-// Server
-IPAddress server_ip(192, 168, 50, 100);
-long interval_server = 10'000;
-int max_server_fails = 15;
-
-// By default the router should be off for 10 seconds, and they wait for a few minutes
-// For all the devices to come back online
-void cycle_relay(long duration = 10'000, long wait = 350'000)
+void cycle_relay(long duration, long wait)
 {
   digitalWrite(relay_pin, LOW);
   long start_time = millis();
@@ -42,6 +21,11 @@ void cycle_relay(long duration = 10'000, long wait = 350'000)
   Serial.println("Reset complete\nWaiting for modem to come back online...");
   delay(wait);
   Serial.println("Waiting complete");
+}
+
+void wake_server()
+{
+  WOL.sendMagicPacket(mac_address);
 }
 
 void config_wifi()
@@ -84,6 +68,28 @@ void scan_networks()
       Serial.println(" dBm)");
     }
   }
+}
+
+void connect_wifi()
+{
+  unsigned long start = millis();
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(1000);
+    Serial.print("Attempting to connect to ");
+    Serial.println(ssid);
+  }
+  unsigned long end = millis();
+
+  Serial.println("\nWiFi connection Successful");
+  print_ip();
+  print_mac();
+  Serial.println(WiFi.macAddress());
+
+  Serial.printf("Connection took: %d ms\n", int(float(end - start) / 1000));
+  WiFi.setAutoConnect(true);
+  WiFi.persistent(true);
 }
 
 void print_ip()
@@ -141,32 +147,6 @@ bool check_remote()
   }
 }
 
-void connect_wifi()
-{
-  unsigned long start = millis();
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(1000);
-    Serial.print("Attempting to connect to ");
-    Serial.println(ssid);
-  }
-  unsigned long end = millis();
-
-  Serial.println("\nWiFi connection Successful");
-  print_ip();
-  print_mac();
-  Serial.println(WiFi.macAddress());
-
-  Serial.printf("Connection took: %d ms\n", int(float(end - start) / 1000));
-  WiFi.setAutoConnect(true);
-  WiFi.persistent(true);
-}
-
-void monitoring_loop()
-{
-}
-
 void setup()
 {
   // Avoid sending garbage during initialization of the serial port
@@ -183,6 +163,10 @@ void setup()
 
   pinMode(relay_pin, OUTPUT);
   digitalWrite(relay_pin, HIGH);
+
+  Serial.println("Seting up WOL");
+  WOL.setRepeat(3, 1'000);
+  WOL.calculateBroadcastAddress(WiFi.localIP(), WiFi.subnetMask());
 
   Serial.println("Setup Complete");
 }
@@ -231,7 +215,7 @@ void loop()
     if (server_fails >= max_server_fails)
     {
       Serial.println("Server failed too many times - sending a wake signal");
-      // TODO: add a magic packet sender here
+      wake_server();
     }
   }
 
