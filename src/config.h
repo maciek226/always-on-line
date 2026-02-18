@@ -19,7 +19,6 @@ const long POST_RESET_WAIT = 450'000;
 
 const int MAX_REMOTE_FAILS = 15;
 const int MAX_MODEM_FAILS = 5;
-const int MAX_SERVER_FAILS = 10;
 
 const int POST_RESET_CHECK_INTERVAL = 30'000;
 const int POST_RESET_RECONNECTION_TIMEOUT = 1'200'000; // 20 min 

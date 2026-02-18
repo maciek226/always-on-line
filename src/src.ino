@@ -8,24 +8,34 @@
 WiFiUDP UDP;
 WakeOnLan WOL(UDP);
 
-void cycle_relay(long duration, long wait)
+enum State {
+  REGULAR,
+  RELAY_RESET,
+  WAITING_FOR_CONNECTION,
+};
+
+struct MonitoringStates
 {
-  digitalWrite(RELAY_PIN, LOW);
-  long start_time = millis();
-  Serial.println("Starting the reset");
-  while (millis() - start_time < duration)
-  {
-    delay(50);
-  }
-  digitalWrite(RELAY_PIN, HIGH);
-  Serial.println("Reset complete\nWaiting for modem to come back online...");
-  delay(wait);
-  Serial.println("Waiting complete");
-}
+  unsigned long current_millis = 0;
+  State current_state = REGULAR;
+  State previous_state = REGULAR;
+  unsigned long last_state_change = 0;
+  int modem_fails = 0;
+  int server_fails = 0;
+  int remote_fails = 0;
+  unsigned long last_modem_check = 0;
+  unsigned long last_server_check = 0;
+  unsigned long last_remote_check = 0;
+  bool relay_reset_requested = true;
+  bool relay_reset_started = false;
+  unsigned long relay_reset_start_millis = 0;
+  unsigned long last_connection_check = 0;
+  int wifi_status = 0;
+};
 
 void wake_server()
 {
-  WOL.sendMagicPacket(mac_address);
+  WOL.sendMagicPacket(MAC_ADDRESS);
 }
 
 void config_wifi()
@@ -73,12 +83,12 @@ void scan_networks()
 void connect_wifi()
 {
   unsigned long start = millis();
-  WiFi.begin(ssid, password);
+  WiFi.begin(SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
     Serial.print("Attempting to connect to ");
-    Serial.println(ssid);
+    Serial.println(SSID);
   }
   unsigned long end = millis();
 
@@ -179,7 +189,6 @@ void setup()
   Serial.println("Setup Complete");
 }
 
-// Check the type
 String connection_status(int status)
 {
   switch (status)
@@ -200,127 +209,6 @@ String connection_status(int status)
   return "Unknown";
 }
 
-// Runs to make sure that the chip is still connected 
-bool check_connection()
-{
-  auto status = WiFi.status();
-  if (status == 3)
-  {
-    Serial.println("The WiFi status is fine");
-  }
-
-  WiFi.reconnect()
-
-  Serial.printf("Connection status: %s\n", connection_status(status));
-}
-
-unsigned long previous_milli_gateway = 0;
-unsigned long previous_milli_remote = 0;
-unsigned long previous_milli_server = 0;
-
-int modem_fails = 0;
-int remote_fails = 0;
-int server_fails = 0;
-
-bool relay_cycle_requested = false;
-bool relay_cycle_triggered = false;
-bool activate = true;
-
-unsigned long relay_shutdown_milli = 0;
-unsigned long next_check_milli = 0;
-
-void loop()
-{
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - previous_milli_remote >= INTERVAL_REMOTE && activate)
-  {
-    previous_milli_remote = currentMillis;
-    if (!check_remote())
-    {
-      remote_fails++;
-    }
-    else
-    {
-      remote_fails = 0;
-    }
-    if (remote_fails >= MAX_REMOTE_FAILS)
-    {
-      Serial.println("Remote failed too many times - restarting the modem");
-      cycle_relay(RESET_DURATION, POST_RESET_WAIT);
-      remote_fails = 0; // trying to give the server a better chance
-    }
-  }
-
-  if (currentMillis - previous_milli_server >= INTERVAL_SERVER)
-  {
-    previous_milli_server = currentMillis;
-    if (!check_server())
-    {
-      server_fails++;
-    }
-    else
-    {
-      server_fails = 0;
-    }
-    if (server_fails >= MAX_SERVER_FAILS)
-    {
-      Serial.println("Server failed too many times - sending a wake signal");
-      wake_server();
-    }
-  }
-
-  if (currentMillis - previous_milli_gateway >= INTERVAL_GATEWAY)
-  {
-    previous_milli_gateway = currentMillis;
-    if (!check_router())
-    {
-      modem_fails++;
-    }
-    else
-    {
-      modem_fails = 0;
-    }
-    if (modem_fails >= MAX_MODEM_FAILS)
-    {
-      Serial.println("Modem failed too many times - restarting");
-      cycle_relay(RESET_DURATION, POST_RESET_WAIT);
-    }
-  }
-
-  // Read incoming serial
-  if (Serial.available() > 0)
-  {
-    String received = Serial.readStringUntil('\n');
-    Serial.println(received);
-  }
-}
-
-enum State {
-  REGULAR,
-  RELAY_RESET,
-  WAITING_FOR_CONNECTION,
-  PROBLEM
-};
-
-struct MonitoringStates
-{
-  unsigned long current_millis = 0;
-  State current_state = REGULAR;
-  State previous_state = REGULAR;
-  unsigned long last_state_change = 0;
-  int modem_fails = 0;
-  int server_fails = 0;
-  int remote_fails = 0;
-  unsigned long last_modem_check = 0;
-  unsigned long last_server_check = 0;
-  unsigned long last_remote_check = 0;
-  bool relay_reset_requested = true;
-  bool relay_reset_started = false;
-  unsigned long relay_reset_start_millis = 0;
-  unsigned long last_connection_check = 0;
-  int wifi_status = 0;
-};
 
 void change_state(MonitoringStates& s, State new_state)
 {
@@ -454,11 +342,7 @@ void wait_for_connection(MonitoringStates& monitoring_states)
   Serial.printf("Connection status: %s\n", connection_status(monitoring_states.wifi_status));
 }
 
-void problem(MonitoringStates& monitoring_states)
-{
-
-}
-void new_main()
+void loop()
 {
   static MonitoringStates monitoring_states;
   monitoring_states.current_millis = millis();
@@ -474,9 +358,6 @@ void new_main()
       break;
     case WAITING_FOR_CONNECTION:
       wait_for_connection(monitoring_states);
-      break;
-    case PROBLEM:
-      problem(monitoring_states);
       break;
   }
 

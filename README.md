@@ -13,6 +13,7 @@ If you are using a 3rd party Arduino board you may need to install the drivers f
 1. In Arduino IDE open settings and under "Additional Boards Manager URLs" add `http://arduino.esp8266.com/stable/package_esp8266com_index.json`
 1. In Arduino IDE package manager add:
     - ESPping
+    - WakeOnLan
 
 ### Hardware 
 - Arduino board with an ESP8266 Wi-Fi chip 
