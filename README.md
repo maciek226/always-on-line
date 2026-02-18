@@ -39,10 +39,10 @@ Note that the pin outs labels on the ESP8266 boards do not correspond to the lab
     - Add the network password 
     - Add the MAC address of the server
 1. Edit the `config.ino` file 
-    - Change `device_ip` to the preferred IP address for the controller 
-    - Change `router_ip` to the default gateway
-    - (Optional) Change the `subnet` 
+    - Change `DEVICE_IP` to the preferred IP address for the controller 
+    - Change `MODEM_IP` to the default gateway
+    - (Optional) Change the `SUBNET` 
     - You can get these values from a computer on the network by running `ipconfig /all` on Windows in command prompt
-    - Change `server_ip` to a device you want to monitor (not actually in use right now)
-    - You can also edit the intervals at which each of these devices will be pinged and how many failures are allowed before a reset is triggered by editing `interval_xxxx` and `max_xxxx_fails` where `xxxx` represents either relay, server, or remote. 
+    - Change `SERVER_IP` to a device you want to monitor
+    - You can also edit the intervals at which each of these devices will be pinged and how many failures are allowed before a reset is triggered by editing `INTERVAL_xxxx` and `MAX_xxxx_FAILS` where `xxxx` represents either relay, server, or remote. 
 1. Upload the sketch to the Arduino and enjoy! 

@@ -31,6 +31,7 @@ struct MonitoringStates
   unsigned long relay_reset_start_millis = 0;
   unsigned long last_connection_check = 0;
   int wifi_status = 0;
+  bool reset_override = false; // if enabled the device will run exactly like before but without writing to the pins
 };
 
 void wake_server()
@@ -42,7 +43,7 @@ void config_wifi()
 {
   Serial.println("Configuring Wi-Fi module");
   WiFi.mode(WIFI_STA);
-  WiFi.config(DEVICE_IP, ROUTER_IP, SUBNET);
+  WiFi.config(DEVICE_IP, MODEM_IP, SUBNET);
 }
 
 void check_wifi_shield()
@@ -115,16 +116,16 @@ void print_mac()
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-bool check_router()
+bool check_modem()
 {
-  if (Ping.ping(ROUTER_IP))
+  if (Ping.ping(MODEM_IP))
   {
-    Serial.println("Router responded");
+    Serial.println("Modem responded");
     return true;
   }
   else
   {
-    Serial.println("Router did not respond");
+    Serial.println("Modem did not respond");
     return false;
   }
 }
@@ -244,13 +245,13 @@ void monitor_server(MonitoringStates& monitoring_states)
     monitoring_states.server_fails++;
   }
 }
-void monitor_router(MonitoringStates& monitoring_states)
+void monitor_modem(MonitoringStates& monitoring_states)
 {
   
   if (monitoring_states.current_millis - monitoring_states.last_modem_check >= INTERVAL_GATEWAY)
   {
     monitoring_states.last_modem_check = monitoring_states.current_millis;
-    if (check_router())
+    if (check_modem())
     {
       monitoring_states.modem_fails = 0;
       return;
@@ -263,7 +264,7 @@ void regular(MonitoringStates& monitoring_states)
 {
   monitor_remote(monitoring_states);
   monitor_server(monitoring_states);
-  monitor_router(monitoring_states);
+  monitor_modem(monitoring_states);
 
   if (monitoring_states.server_fails >= MAX_SERVER_FAILS)
   {
@@ -299,14 +300,20 @@ void relay_reset(MonitoringStates& monitoring_states)
     monitoring_states.relay_reset_requested = false;
     monitoring_states.relay_reset_started = true;
     monitoring_states.relay_reset_start_millis = monitoring_states.current_millis;
+    if (!monitoring_states.reset_override)
+    {
+      digitalWrite(RELAY_PIN, LOW);
+    }
     Serial.println("Starting the reset");
-    digitalWrite(RELAY_PIN, LOW);
   }
 
   // Reset complete
   if (monitoring_states.relay_reset_started && monitoring_states.current_millis - monitoring_states.relay_reset_start_millis >= RESET_DURATION)
   {
-    digitalWrite(RELAY_PIN, HIGH);
+    if (!monitoring_states.reset_override)
+    {
+      digitalWrite(RELAY_PIN, HIGH);
+    }
     monitoring_states.relay_reset_started = false;
     Serial.println("Reset completed");
     change_state(monitoring_states, WAITING_FOR_CONNECTION);
@@ -335,11 +342,41 @@ void wait_for_connection(MonitoringStates& monitoring_states)
   Serial.println("Checking connection");
   if (monitoring_states.wifi_status == 3)
   {
+    Serial.println("Connection established - returning to normal state");
     change_state(monitoring_states, REGULAR);
     return;
   }
 
-  Serial.printf("Connection status: %s\n", connection_status(monitoring_states.wifi_status));
+  Serial.printf("Connection status: %s\n", connection_status(monitoring_states.wifi_status).c_str());
+}
+
+void parse_serial(MonitoringStates& monitoring_states)
+{
+  if (Serial.available() > 0)
+  {
+    String received = Serial.readStringUntil('\n');
+    received.trim();
+
+    Serial.println("Received: " + received);
+
+    if (received.equalsIgnoreCase("enable-reset-override"))
+    {
+      Serial.println("Enabling reset override");
+      monitoring_states.reset_override = true;
+    }
+
+    if (received.equalsIgnoreCase("disable-reset-override"))
+    {
+      Serial.println("Disabling reset override");
+      monitoring_states.reset_override = false;
+    }
+
+    if (received.equalsIgnoreCase("system-reset"))
+    {
+      Serial.println("Executing system reset");
+      ESP.restart();
+    }
+  }
 }
 
 void loop()
@@ -361,9 +398,5 @@ void loop()
       break;
   }
 
-  if (Serial.available() > 0)
-  {
-    String received = Serial.readStringUntil('\n');
-    Serial.println(received);
-  }
+  parse_serial(monitoring_states);
 }
