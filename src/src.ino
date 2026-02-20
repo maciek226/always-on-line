@@ -8,31 +8,42 @@
 WiFiUDP UDP;
 WakeOnLan WOL(UDP);
 
-void cycle_relay(long duration, long wait)
+enum State {
+  REGULAR,
+  RELAY_RESET,
+  WAITING_FOR_CONNECTION,
+};
+
+struct MonitoringStates
 {
-  digitalWrite(relay_pin, LOW);
-  long start_time = millis();
-  Serial.println("Starting the reset");
-  while (millis() - start_time < duration)
-  {
-    delay(50);
-  }
-  digitalWrite(relay_pin, HIGH);
-  Serial.println("Reset complete\nWaiting for modem to come back online...");
-  delay(wait);
-  Serial.println("Waiting complete");
-}
+  unsigned long current_millis = 0;
+  State current_state = REGULAR;
+  State previous_state = REGULAR;
+  unsigned long last_state_change = 0;
+  int modem_fails = 0;
+  int server_fails = 0;
+  int remote_fails = 0;
+  unsigned long last_modem_check = 0;
+  unsigned long last_server_check = 0;
+  unsigned long last_remote_check = 0;
+  bool relay_reset_requested = true;
+  bool relay_reset_started = false;
+  unsigned long relay_reset_start_millis = 0;
+  unsigned long last_connection_check = 0;
+  int wifi_status = 0;
+  bool reset_override = false; // if enabled the device will run exactly like before but without writing to the pins
+};
 
 void wake_server()
 {
-  WOL.sendMagicPacket(mac_address);
+  WOL.sendMagicPacket(MAC_ADDRESS);
 }
 
 void config_wifi()
 {
   Serial.println("Configuring Wi-Fi module");
   WiFi.mode(WIFI_STA);
-  WiFi.config(device_ip, router_ip, subnet);
+  WiFi.config(DEVICE_IP, MODEM_IP, SUBNET);
 }
 
 void check_wifi_shield()
@@ -73,12 +84,12 @@ void scan_networks()
 void connect_wifi()
 {
   unsigned long start = millis();
-  WiFi.begin(ssid, password);
+  WiFi.begin(SSID, WIFI_PASSWORD);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
     Serial.print("Attempting to connect to ");
-    Serial.println(ssid);
+    Serial.println(SSID);
   }
   unsigned long end = millis();
 
@@ -105,23 +116,23 @@ void print_mac()
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-bool check_router()
+bool check_modem()
 {
-  if (Ping.ping(router_ip))
+  if (Ping.ping(MODEM_IP))
   {
-    Serial.println("Router responded");
+    Serial.println("Modem responded");
     return true;
   }
   else
   {
-    Serial.println("Router did not respond");
+    Serial.println("Modem did not respond");
     return false;
   }
 }
 
 bool check_server()
 {
-  if (Ping.ping(server_ip))
+  if (Ping.ping(SERVER_IP))
   {
     Serial.println("Server responded");
     return true;
@@ -135,16 +146,24 @@ bool check_server()
 
 bool check_remote()
 {
-  if (Ping.ping(remote_ip))
+  if (Ping.ping(REMOTE_IP_1))
   {
-    Serial.println("Remote responded");
+    Serial.println("Remote 1 responded");
     return true;
   }
-  else
+  if (Ping.ping(REMOTE_IP_2))
   {
-    Serial.println("Remote did not respond");
-    return false;
+    Serial.println("Remote 2 responded");
+    return true;
   }
+  if (Ping.ping(REMOTE_IP_3))
+  {
+    Serial.println("Remote 3 responded");
+    return true;
+  }
+
+  Serial.println("No remote respond");
+  return false;
 }
 
 void setup()
@@ -161,8 +180,8 @@ void setup()
 
   Serial.println("Initializing Pins");
 
-  pinMode(relay_pin, OUTPUT);
-  digitalWrite(relay_pin, HIGH);
+  pinMode(RELAY_PIN, OUTPUT);
+  digitalWrite(RELAY_PIN, HIGH);
 
   Serial.println("Seting up WOL");
   WOL.setRepeat(3, 1'000);
@@ -171,69 +190,213 @@ void setup()
   Serial.println("Setup Complete");
 }
 
-unsigned long previous_milli_gateway = 0;
-unsigned long previous_milli_remote = 0;
-unsigned long previous_milli_server = 0;
+String connection_status(int status)
+{
+  switch (status)
+  {
+  case 0:
+    return "Idle";
+  case 1:
+    return "SSID not available";
+  case 3:
+    return "Connected";
+  case 4:
+    return "Connection Failed";
+  case 6:
+    return "Wrong Password";
+  case 7:
+    return "Disconnected";
+  }
+  return "Unknown";
+}
 
-int modem_fails = 0;
-int remote_fails = 0;
-int server_fails = 0;
+
+void change_state(MonitoringStates& s, State new_state)
+{
+  s.previous_state = s.current_state;
+  s.current_state = new_state;
+  s.last_state_change = s.current_millis;
+}
+
+void monitor_remote(MonitoringStates& monitoring_states)
+{
+  if (monitoring_states.current_millis - monitoring_states.last_remote_check >= INTERVAL_REMOTE)
+  {
+    monitoring_states.last_remote_check = monitoring_states.current_millis;
+    if (check_remote())
+    {
+      monitoring_states.remote_fails = 0;
+      return;
+    }
+    monitoring_states.remote_fails++;
+  }
+}
+
+void monitor_server(MonitoringStates& monitoring_states)
+{
+  if (monitoring_states.current_millis - monitoring_states.last_server_check >= INTERVAL_SERVER)
+  {
+    monitoring_states.last_server_check = monitoring_states.current_millis;
+    if (check_server())
+    {
+      monitoring_states.server_fails = 0;
+      return;
+    }
+    monitoring_states.server_fails++;
+  }
+}
+void monitor_modem(MonitoringStates& monitoring_states)
+{
+  
+  if (monitoring_states.current_millis - monitoring_states.last_modem_check >= INTERVAL_GATEWAY)
+  {
+    monitoring_states.last_modem_check = monitoring_states.current_millis;
+    if (check_modem())
+    {
+      monitoring_states.modem_fails = 0;
+      return;
+    }
+    monitoring_states.modem_fails++;
+  }
+}
+
+void regular(MonitoringStates& monitoring_states)
+{
+  monitor_remote(monitoring_states);
+  monitor_server(monitoring_states);
+  monitor_modem(monitoring_states);
+
+  if (monitoring_states.server_fails >= MAX_SERVER_FAILS)
+  {
+    monitoring_states.server_fails = 0;
+    Serial.println("Server did not respond too many times, waking-up");
+    wake_server();
+  }
+
+  if (monitoring_states.remote_fails >= MAX_REMOTE_FAILS)
+  {
+    monitoring_states.remote_fails = 0;
+    monitoring_states.modem_fails = 0;
+    Serial.println("Remote failed too many times - restarting");
+    change_state(monitoring_states, RELAY_RESET);
+    monitoring_states.relay_reset_requested = true;
+  }
+
+  if (monitoring_states.modem_fails >= MAX_MODEM_FAILS)
+  {
+    monitoring_states.modem_fails = 0;
+    monitoring_states.remote_fails = 0;
+    Serial.println("Modem failed too many times - restarting");
+    change_state(monitoring_states, RELAY_RESET);
+    monitoring_states.relay_reset_requested = true;
+  }
+}
+
+void relay_reset(MonitoringStates& monitoring_states)
+{
+  // Relay reset has not started - so we need to start it 
+  if (monitoring_states.relay_reset_requested && !monitoring_states.relay_reset_started)
+  {
+    monitoring_states.relay_reset_requested = false;
+    monitoring_states.relay_reset_started = true;
+    monitoring_states.relay_reset_start_millis = monitoring_states.current_millis;
+    if (!monitoring_states.reset_override)
+    {
+      digitalWrite(RELAY_PIN, LOW);
+    }
+    Serial.println("Starting the reset");
+  }
+
+  // Reset complete
+  if (monitoring_states.relay_reset_started && monitoring_states.current_millis - monitoring_states.relay_reset_start_millis >= RESET_DURATION)
+  {
+    if (!monitoring_states.reset_override)
+    {
+      digitalWrite(RELAY_PIN, HIGH);
+    }
+    monitoring_states.relay_reset_started = false;
+    Serial.println("Reset completed");
+    change_state(monitoring_states, WAITING_FOR_CONNECTION);
+  }  
+}
+
+void wait_for_connection(MonitoringStates& monitoring_states)
+{
+  if (monitoring_states.current_millis - (monitoring_states.relay_reset_start_millis + RESET_DURATION) < POST_RESET_WAIT)
+  {
+    return;
+  }
+  if (monitoring_states.current_millis - monitoring_states.last_connection_check < POST_RESET_CHECK_INTERVAL)
+  {
+    return;
+  }
+
+  if (monitoring_states.current_millis - monitoring_states.last_state_change > POST_RESET_RECONNECTION_TIMEOUT)
+  {
+    Serial.println("Unable to connect to WiFi after 20 min, resetting the board");
+    ESP.restart(); 
+    return;
+  }
+  monitoring_states.last_connection_check = monitoring_states.current_millis;
+
+  Serial.println("Checking connection");
+  if (monitoring_states.wifi_status == 3)
+  {
+    Serial.println("Connection established - returning to normal state");
+    change_state(monitoring_states, REGULAR);
+    return;
+  }
+
+  Serial.printf("Connection status: %s\n", connection_status(monitoring_states.wifi_status).c_str());
+}
+
+void parse_serial(MonitoringStates& monitoring_states)
+{
+  if (Serial.available() > 0)
+  {
+    String received = Serial.readStringUntil('\n');
+    received.trim();
+
+    Serial.println("Received: " + received);
+
+    if (received.equalsIgnoreCase("enable-reset-override"))
+    {
+      Serial.println("Enabling reset override");
+      monitoring_states.reset_override = true;
+    }
+
+    if (received.equalsIgnoreCase("disable-reset-override"))
+    {
+      Serial.println("Disabling reset override");
+      monitoring_states.reset_override = false;
+    }
+
+    if (received.equalsIgnoreCase("system-reset"))
+    {
+      Serial.println("Executing system reset");
+      ESP.restart();
+    }
+  }
+}
 
 void loop()
 {
-  unsigned long currentMillis = millis();
+  static MonitoringStates monitoring_states;
+  monitoring_states.current_millis = millis();
+  monitoring_states.wifi_status = WiFi.status();
 
-  if (currentMillis - previous_milli_remote >= interval_remote)
+  switch (monitoring_states.current_state)
   {
-    previous_milli_remote = currentMillis;
-    if (!check_remote())
-    {
-      remote_fails++;
-    }
-    else
-    {
-      remote_fails = 0;
-    }
-    if (remote_fails >= max_remote_fails)
-    {
-      Serial.println("Remote failed too many times - restarting the modem");
-      cycle_relay(reset_duration, post_reset_wait);
-    }
+    case REGULAR:
+      regular(monitoring_states);
+      break;
+    case RELAY_RESET:
+      relay_reset(monitoring_states);
+      break;
+    case WAITING_FOR_CONNECTION:
+      wait_for_connection(monitoring_states);
+      break;
   }
 
-  if (currentMillis - previous_milli_server >= interval_server)
-  {
-    previous_milli_server = currentMillis;
-    if (!check_server())
-    {
-      server_fails++;
-    }
-    else
-    {
-      server_fails = 0;
-    }
-    if (server_fails >= max_server_fails)
-    {
-      Serial.println("Server failed too many times - sending a wake signal");
-      wake_server();
-    }
-  }
-
-  if (currentMillis - previous_milli_gateway >= interval_gateway)
-  {
-    previous_milli_gateway = currentMillis;
-    if (!check_router())
-    {
-      modem_fails++;
-    }
-    else
-    {
-      modem_fails = 0;
-    }
-    if (modem_fails >= max_modem_fails)
-    {
-      Serial.println("Modem failed too many times - restarting");
-      cycle_relay(reset_duration, post_reset_wait);
-    }
-  }
+  parse_serial(monitoring_states);
 }
